@@ -37,19 +37,19 @@ export function createEmbeddings() {
   // 优先使用智谱 AI（key 格式 xxxx.xxxx）
   if (config.ai.zhipuKey) {
     return new ZhipuAIEmbeddings({
-      apiKey:    config.ai.zhipuKey,
+      apiKey: config.ai.zhipuKey,
       modelName: 'embedding-3',
     })
   }
   // 其次使用 SiliconFlow / OpenAI 兼容接口
   if (config.ai.openaiKey) {
     return new OpenAIEmbeddings({
-      model:         config.ai.embedModel,
-      apiKey:        config.ai.openaiKey,
+      model: config.ai.embedModel,
+      apiKey: config.ai.openaiKey,
       configuration: { baseURL: config.ai.embedBaseURL },
     })
   }
-  console.warn('⚠️  未配置 ZHIPU_API_KEY 或 OPENAI_API_KEY，RAG 功能将不可用')
+  console.warn('⚠️  未配置 ZHIPUAI_API_KEY 或 OPENAI_API_KEY，RAG 功能将不可用')
   return null
 }
 

@@ -33,14 +33,14 @@ app.use(express.json({ limit: '5mb' }))
 app.use(requestLogger)
 
 // ── 路由注册 ───────────────────────────────────────────────────
-app.use('/health',        healthRouter)
-app.use('/api/chat',      chatRouter)
+app.use('/health', healthRouter)
+app.use('/api/chat', chatRouter)
 app.use('/api/knowledge', knowledgeRouter)
-app.use('/api/agent',     agentRouter)
-app.use('/api/workflow',  workflowRouter)
-app.use('/api/erp',       erpRouter)
-app.use('/api/prompt',    promptRouter)
-app.use('/api/monitor',   monitorRouter)
+app.use('/api/agent', agentRouter)
+app.use('/api/workflow', workflowRouter)
+app.use('/api/erp', erpRouter)
+app.use('/api/prompt', promptRouter)
+app.use('/api/monitor', monitorRouter)
 
 
 // 404
@@ -52,14 +52,15 @@ app.use('*', (req, res) => {
 app.use(errorMiddleware)
 
 // ── 启动 ───────────────────────────────────────────────────────
-const server = app.listen(config.app.port, () => {
+const actualHost = config.app.host;
+const server = app.listen(config.app.port, actualHost, () => {
   logger.info('server started', {
     port: config.app.port,
-    env:  config.app.env,
-  })
+    env: config.app.env,
+  });
   console.log(`\n🚀 WorkMind Server 已启动`)
-  console.log(`   地址: http://localhost:${config.app.port}`)
-  console.log(`   健康检查: http://localhost:${config.app.port}/health\n`)
+  console.log(`地址: http://localhost:${config.app.port}`)
+  console.log(`健康检查: http://localhost:${config.app.port}/health\n`)
 })
 
 // ── 优雅退出 ───────────────────────────────────────────────────

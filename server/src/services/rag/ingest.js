@@ -76,7 +76,7 @@ export async function getVectorStore() {
   if (vectorStore) return vectorStore
 
   if (!embeddings) {
-    throw new Error('未配置 ZHIPU_API_KEY，无法使用 RAG 功能')
+    throw new Error('未配置 ZHIPUAI_API_KEY，无法使用 RAG 功能')
   }
 
   vectorStore = new MemoryVectorStore()

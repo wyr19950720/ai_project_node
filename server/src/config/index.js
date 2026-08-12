@@ -3,15 +3,28 @@
 import 'dotenv/config'
 
 export const config = {
+  // app: {
+  //   port: Number(process.env.PORT) || 3000,
+  //   env:  process.env.NODE_ENV || 'development',
+  //   allowedOrigins: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:5173'],
+  // },
   app: {
-    port: Number(process.env.PORT) || 3000,
-    env:  process.env.NODE_ENV || 'development',
+    host: process.env.HOST || '0.0.0.0',
+    port: (() => {
+      const port = Number(process.env.PORT);
+      if (isNaN(port) || port < 1 || port > 65535) {
+        console.warn('⚠️ 无效的 PORT 环境变量，使用默认端口 3000');
+        return 3000;
+      }
+      return port;
+    })(),
+    env: process.env.NODE_ENV || 'development',
     allowedOrigins: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:5173'],
   },
   ai: {
     deepseekKey:   process.env.DEEPSEEK_API_KEY,
     openaiKey:     process.env.OPENAI_API_KEY,
-    zhipuKey:      process.env.ZHIPU_API_KEY,
+    zhipuKey:      process.env.ZHIPUAI_API_KEY,
     primaryModel:  process.env.PRIMARY_MODEL  || 'deepseek-chat',
     embedModel:    process.env.EMBED_MODEL    || 'BAAI/bge-m3',
     baseURL:       'https://api.deepseek.com/v1',

@@ -4,9 +4,9 @@
 export class AppError extends Error {
   constructor(message, { code = 'UNKNOWN', statusCode = 500, retryable = false, userMessage } = {}) {
     super(message)
-    this.code        = code
-    this.statusCode  = statusCode
-    this.retryable   = retryable
+    this.code = code
+    this.statusCode = statusCode
+    this.retryable = retryable
     this.userMessage = userMessage || '服务暂时不可用，请稍后重试'
   }
 }

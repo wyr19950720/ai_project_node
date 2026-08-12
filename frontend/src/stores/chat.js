@@ -159,6 +159,7 @@ export const useChatStore = defineStore('chat', () => {
         },
         onError: (err) => {
           aiMsg.streaming = false
+          // debugger
           aiMsg.content   = aiMsg.content || '抱歉，出现了一些问题，请重试。'
           appStore.toast.error(err.message || '发送失败')
         },

@@ -127,7 +127,7 @@ export async function runAgent(task, onEvent) {
       if (
         eventType === 'on_chat_model_stream' &&
         data?.chunk?.content &&
-        name === 'ChatOpenAI'  // 只取最后 agent 节点的输出，不取工具调用决策的
+        (name === 'ChatOpenAI' || name === 'ChatZhipuAI')  // 只取最后 agent 节点的输出，不取工具调用决策的
       ) {
         // 只推送没有 tool_calls 的 token（即最终回答阶段）
         const chunk = data.chunk

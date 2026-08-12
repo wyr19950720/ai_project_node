@@ -17,11 +17,10 @@
       <div v-if="budgetAlert" class="budget-alert">
         <el-icon><Warning /></el-icon> 今日用量已达 {{ budgetAlert }}，请注意控制
       </div>
-
       <!-- 用户头像（演示用） -->
       <div class="user-info">
-        <div class="user-avatar">大</div>
-        <span class="user-name">大伟</span>
+        <div class="user-avatar">YR</div>
+        <span class="user-name">艳荣</span>
       </div>
     </div>
   </header>
@@ -46,9 +45,16 @@ const pageMeta = {
   '/monitor':   { title: '用量与成本看板', icon: 'DataAnalysis', desc: 'Token 消耗、费用、缓存命中率' },
 }
 
+// 静态 key 列表，避免每次 computed 求值重复 Object.keys（性能优化）
+const PAGE_KEYS = Object.keys(pageMeta)
+
 const currentMeta = computed(() => {
   const path = route.path
-  return pageMeta[path] || pageMeta[Object.keys(pageMeta).find(k => path.startsWith(k))] || { title: 'WorkMind', icon: 'Grid' }
+  // 1. 精确匹配
+  if (pageMeta[path]) return pageMeta[path]
+  // 2. 前缀匹配：必须落在路径段边界，防止 /chat-settings 误命中 /chat
+  const key = PAGE_KEYS.find(k => path.startsWith(k + '/'))
+  return (key && pageMeta[key]) || { title: 'WorkMind', icon: 'Grid' }
 })
 
 // 预算预警（超过日预算80%时显示）

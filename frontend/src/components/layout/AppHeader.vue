@@ -19,8 +19,8 @@
       </div>
       <!-- 用户头像（演示用） -->
       <div class="user-info">
-        <div class="user-avatar">YR</div>
-        <span class="user-name">艳荣</span>
+        <div class="user-avatar">A</div>
+        <span class="user-name">admin</span>
       </div>
     </div>
   </header>

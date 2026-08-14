@@ -22,6 +22,11 @@ frontend/chroma/
 server/uploads/*
 !server/uploads/.gitkeep
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
 # OS files
 .DS_Store
 

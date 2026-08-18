@@ -19,6 +19,7 @@ export const useAppStore = defineStore('app', () => {
   function showToast(message, type = 'info', duration = 3000) {
     const id = ++toastId
     toasts.value.push({ id, message, type })
+    // 设置定时器自动移除提示
     setTimeout(() => {
       toasts.value = toasts.value.filter(t => t.id !== id)
     }, duration)

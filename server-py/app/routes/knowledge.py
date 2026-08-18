@@ -13,7 +13,9 @@ from app.utils.logger import logger
 from app.utils.sse import sse_stream
 
 router = APIRouter()
-
+# "./uploads"是一个相对路径字符串，表示「当前工作目录下的 uploads 文件夹」：，而不是代码文件所在位置。所以：
+# 如果你在 server-py/ 目录下启动服务（如 uvicorn app.main:app），上传目录会是 server-py/uploads
+# 如果你从项目根目录 ai_project_node/ 启动，则会是 ai_project_node/uploads
 UPLOAD_DIR = "./uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -27,7 +29,7 @@ def _gen_filename(original_name: str) -> str:
     return f"{int(time.time() * 1000)}_{rand}{ext}"
 
 
-@router.post("/documents", dependencies=[Depends(rate_limiter)])
+@router.post("/documents", summary="上传知识库文档", dependencies=[Depends(rate_limiter)])
 async def upload_document(
     file: UploadFile | None = File(default=None),
     content: str | None = Form(default=None),

@@ -10,7 +10,7 @@ router = APIRouter()
 _start_time = time.time()
 
 
-@router.get("/live")
+@router.get("/live", summary="服务健康检查",)
 async def live():
     return {"status": "ok", "uptime": int(time.time() - _start_time)}
 

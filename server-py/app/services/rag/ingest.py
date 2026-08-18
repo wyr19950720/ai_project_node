@@ -5,6 +5,7 @@ import os
 import random
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -13,6 +14,10 @@ from app.utils.logger import logger
 
 # 单次入库最多 300 个 chunk，防止 embedding API 调用过多
 MAX_CHUNKS = 300
+
+# 固定知识库目录：server-py/knowledge_files/（相对 ingest.py 上溯 4 层）
+KNOWLEDGE_DIR = Path(__file__).resolve().parents[3] / "knowledge_files"
+SUPPORTED_EXTENSIONS = {".txt", ".md", ".pdf"}
 
 
 def _now_ms() -> int:
@@ -118,7 +123,7 @@ def _extract_text(file_path: str) -> str:
 
 
 # ── 核心：文档入库 ─────────────────────────────────────────────
-async def ingest_document(file_path: str, file_name: str, title: str | None = None, category: str = "通用") -> dict:
+async def ingest_document(file_path: str, file_name: str, title: str | None = None, category: str = "通用", keep_file: bool = False) -> dict:
     doc_id = f"doc_{_now_ms()}_{''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=5))}"
 
     logger.info("rag: ingesting document", {"docId": doc_id, "title": title, "category": category})
@@ -163,14 +168,41 @@ async def ingest_document(file_path: str, file_name: str, title: str | None = No
     }
     _doc_registry[doc_id] = doc_meta
 
-    # 5. 清理临时文件
-    try:
-        os.unlink(file_path)
-    except OSError:
-        pass
+    # 5. 清理临时文件（固定目录文件 keep_file=True 时保留）
+    if not keep_file:
+        try:
+            os.unlink(file_path)
+        except OSError:
+            pass
 
     logger.info("rag: ingest complete", {"docId": doc_id, "chunks": len(chunks)})
     return doc_meta
+
+
+# ── 固定知识库：启动时扫描加载指定目录下的所有文档 ──────────────
+async def ingest_fixed_files(directory: Path | str | None = None) -> list[dict]:
+    """加载固定知识目录下所有受支持的文档（.txt/.md/.pdf），原文件保留不删除。"""
+    directory = Path(directory) if directory else KNOWLEDGE_DIR
+    directory.mkdir(parents=True, exist_ok=True)
+
+    loaded: list[dict] = []
+    for file_path in sorted(directory.iterdir()):
+        if not file_path.is_file() or file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+            continue
+        try:
+            doc_meta = await ingest_document(
+                file_path=str(file_path),
+                file_name=file_path.name,
+                title=file_path.stem,
+                category="固定知识库",
+                keep_file=True,
+            )
+            loaded.append(doc_meta)
+            logger.info("rag: fixed file loaded", {"title": doc_meta["title"]})
+        except Exception as err:
+            logger.warn("rag: fixed file load failed", {"file": file_path.name, "error": str(err)})
+
+    return loaded
 
 
 # ── 删除文档 ──────────────────────────────────────────────────

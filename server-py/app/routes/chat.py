@@ -34,8 +34,8 @@ class ChatStreamRequest(BaseModel):
     role: str | None = "default"
     userId: str | None = "anonymous"
 
-
-@router.post("/stream", dependencies=[Depends(rate_limiter)])
+# Depends() 表示调用这个接口前先执行 rate_limiter 限流
+@router.post("/stream", summary="流式对话接口" , dependencies=[Depends(rate_limiter)])
 async def chat_stream(body: ChatStreamRequest):
     security_check(body.message)
 

@@ -23,7 +23,7 @@ from app.utils.logger import logger
 # 启动前校验配置
 validate_config()
 
-app = FastAPI(title="WorkMind Server (FastAPI)")
+app = FastAPI(title="WorkMind Server (FastAPI)", description="基于 LangChain + LangGraph 的大模型应用开发项目实战")
 
 
 # ── 基础中间件 ─────────────────────────────────────────────────
@@ -94,6 +94,19 @@ app.include_router(monitor_router, prefix="/api/monitor")
 
 @app.on_event("startup")
 async def on_startup():
+    # 启动时自动加载固定知识库目录（server-py/knowledge_files/）
+    try:
+        from app.services.rag.ingest import ingest_fixed_files
+
+        docs = await ingest_fixed_files()
+        if docs:
+            # logger.info(...)：给机器看的（带时间、INFO 级别前缀）-日志归档、监控、排障
+            # print(...)：给人看的，带 emoji 的开发启动横幅 — 纯终端输出
+            logger.info("fixed knowledge loaded", {"count": len(docs)})
+            print(f"   📚 已加载固定知识库 {len(docs)} 个文档")
+    except Exception as err:
+        logger.warn("固定知识库加载失败", {"error": str(err)})
+
     logger.info("server started", {"port": config.app.port, "env": config.app.env})
     print("\n🚀 WorkMind Server (FastAPI) 已启动")
     print(f"   地址: http://localhost:{config.app.port}")

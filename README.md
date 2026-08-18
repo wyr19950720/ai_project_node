@@ -64,7 +64,7 @@ ALLOWED_ORIGINS=http://localhost:5173
 
 > 与 Express 版共用同一套环境变量命名，可以直接复制 `server/.env` 内容过来。
 
-### 3. 启动服务
+### 3. 启动服务（在 server-py/ 目录下启动服务）
 
 ```bash
 # 开发模式（代码变更自动重载）
@@ -72,8 +72,11 @@ uvicorn app.main:app --reload --port 3000
 
 # 或者直接用 python -m
 python -m uvicorn app.main:app --port 3000
+# 开发期间建议加 --reload，改代码自动生效：
+python -m uvicorn app.main:app --reload --port 3000
+或 uv run uvicorn app.main:app --reload --port 8000
 # $env:PYTHONIOENCODING="utf-8"
-# .\.venv\Scripts\python.exe -m uvicorn app.main:app --port 3000
+# .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 3000
 ```
 
 启动成功后会看到：

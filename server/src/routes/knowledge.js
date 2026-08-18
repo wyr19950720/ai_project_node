@@ -3,6 +3,7 @@
 import express from 'express'
 import multer from 'multer'
 import path from 'path'
+import fs from 'fs'
 import { ingestDocument, getDocRegistry, deleteDocument } from '../services/rag/ingest.js'
 import { ragQueryStream } from '../services/rag/query.js'
 import { rateLimiter } from '../middleware/index.js'
@@ -14,6 +15,9 @@ export const knowledgeRouter = express.Router()
 // ── multer 文件上传配置 ────────────────────────────────────────
 // memoryStorage：文件先存内存，再由业务代码决定怎么处理
 // diskStorage：直接存磁盘（大文件推荐）
+// 确保上传目录存在（multer diskStorage 不会自动创建目录）
+fs.mkdirSync('./uploads/', { recursive: true })
+
 const upload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => cb(null, './uploads/'),
@@ -44,10 +48,15 @@ const upload = multer({
 knowledgeRouter.post('/documents', rateLimiter, async (req, res) => {
   // 先尝试文件上传
   upload.single('file')(req, res, async (uploadErr) => {
+    // 上传中间件报错（格式不支持/超限/目录不存在等）时直接返回真实错误，避免误报 400
+    if (uploadErr) {
+      logger.warn('knowledge: upload error', { error: uploadErr.message })
+      return res.status(400).json({ error: { message: uploadErr.message || '文件上传失败' } })
+    }
     try {
       let docMeta
 
-      if (req.file) {
+      if (req.file) {  
         // 方式1：上传文件
         docMeta = await ingestDocument({
           filePath: req.file.path,

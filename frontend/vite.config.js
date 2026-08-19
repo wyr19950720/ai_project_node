@@ -8,6 +8,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
+      // 支持 template 字符串选项的运行时编译（MetricCard / FormField / ProfilePanel 子组件用到）
+      vue: 'vue/dist/vue.esm-bundler.js',
     },
   },
   server: {

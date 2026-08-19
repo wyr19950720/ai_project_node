@@ -17,22 +17,51 @@
       <div v-if="budgetAlert" class="budget-alert">
         <el-icon><Warning /></el-icon> 今日用量已达 {{ budgetAlert }}，请注意控制
       </div>
-      <!-- 用户头像（演示用） -->
-      <div class="user-info">
-        <div class="user-avatar">A</div>
-        <span class="user-name">admin</span>
-      </div>
+      <!-- 用户信息 + 退出登录 -->
+      <el-dropdown trigger="click" @command="onUserCommand">
+        <div class="user-info">
+          <div class="user-avatar">{{ displayName.charAt(0).toUpperCase() }}</div>
+          <span class="user-name">{{ displayName }}</span>
+          <el-icon class="user-caret"><ArrowDown /></el-icon>
+        </div>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item disabled>
+              <el-icon><User /></el-icon> {{ userStore.userInfo?.username || '未登录' }}
+            </el-dropdown-item>
+            <el-dropdown-item divided command="logout">
+              <el-icon><SwitchButton /></el-icon> 退出登录
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
     </div>
   </header>
 </template>
 
 <script setup>
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useMonitorStore } from '@/stores/monitor.js'
+import { useAppStore } from '@/stores/app.js'
+import { useUserStore } from '@/stores/user.js'
 
 const route = useRoute()
+const router = useRouter()
 const monitorStore = useMonitorStore()
+const appStore = useAppStore()
+const userStore = useUserStore()
+
+// 显示昵称，未登录时兜底为 admin（路由守卫会拦截未登录访问）
+const displayName = computed(() => userStore.userInfo?.nickname || 'admin')
+
+function onUserCommand(command) {
+  if (command === 'logout') {
+    userStore.logout()
+    appStore.toast.success('已退出登录')
+    router.push('/login')
+  }
+}
 
 // 各页面的标题和描述（icon 使用 Element Plus 图标名）
 const pageMeta = {
@@ -141,6 +170,11 @@ const budgetAlert = computed(() => monitorStore.budgetWarning)
   font-size: 13px;
   font-weight: 500;
   color: var(--color-text);
+}
+
+.user-caret {
+  font-size: 12px;
+  color: var(--color-text-muted);
 }
 
 @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }

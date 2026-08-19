@@ -62,8 +62,27 @@ services:
     networks:
       - workmind-net
 
+  # ── MySQL 8（用户/会话/画像持久化）────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: workmind-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-workmind123}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-workmind}
+      MYSQL_USER: ${MYSQL_USER:-workmind}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-workmind123}
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql # 数据持久化
+    networks:
+      - workmind-net
+
 volumes:
   chroma-data:
+  mysql-data:
 
 networks:
   workmind-net:

@@ -12,7 +12,11 @@ const http = axios.create({
 // ── 请求拦截器 ─────────────────────────────────────────────────
 http.interceptors.request.use(
   (config) => {
-    // 可以在这里加 token：config.headers.Authorization = `Bearer ${token}`
+    // 自动携带登录 token
+    const token = localStorage.getItem('workmind_token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
     return config
   },
   (error) => Promise.reject(error)
@@ -30,7 +34,14 @@ http.interceptors.response.use(
       const status = error.response.status
       const msg = error.response.data?.error || '请求失败'
 
-      if (status === 429) {
+      if (status === 401) {
+        // 登录失效：清 token 并跳登录页
+        localStorage.removeItem('workmind_token')
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login'
+        }
+        appStore.toast.error(msg || '请先登录')
+      } else if (status === 429) {
         appStore.toast.warning('请求太频繁，请稍后再试')
       } else if (status >= 500) {
         appStore.toast.error('服务器异常，请稍后重试')
@@ -53,9 +64,16 @@ http.interceptors.response.use(
 // onError：出错时的回调
 export async function fetchStream(url, body, { onToken, onEvent, onDone, onError } = {}) {
   try {
+    // SSE 流也携带登录 token
+    const headers = { 'Content-Type': 'application/json' }
+    const token = localStorage.getItem('workmind_token')
+    if (token) {
+      headers.Authorization = `Bearer ${token}`
+    }
+
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
     })
 

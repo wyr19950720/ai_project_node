@@ -1,7 +1,8 @@
 # Dependencies
 node_modules/
 
-# Environment variables
+# Environment variables（环境变量）
+# 环境变量文件，通常存放密钥、Token、数据库连接串等敏感信息，禁止提交
 .env
 .env.local
 .env.*.local
@@ -22,10 +23,17 @@ frontend/chroma/
 server/uploads/*
 !server/uploads/.gitkeep
 
-# Python
+# Python相关文件
+# __pycache__/：Python 字节码缓存目录
 __pycache__/
+# *.py[cod]：Python 编译产物（.pyc/.pyo/.pyd 等）
 *.py[cod]
+# *$py.class：Jython 编译生成的类文件
 *$py.class
+# Python 虚拟环境目录（不同工具/项目的默认命名）
+.venv/
+venv/
+env/
 
 # OS files
 .DS_Store

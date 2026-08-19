@@ -1,11 +1,18 @@
 // frontend/src/router/index.js
 // 路由配置：每个模块对应一个一级路由
 import { createRouter, createWebHistory } from 'vue-router'
+import { useUserStore } from '@/stores/user.js'
 
 const routes = [
   {
     path: '/',
     redirect: '/chat',
+  },
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import('@/views/LoginView.vue'),
+    meta: { title: '登录', public: true },
   },
   {
     path: '/chat',
@@ -54,6 +61,19 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
+})
+
+// ── 全局守卫：未登录跳登录页，已登录访问 /login 跳首页 ─────────
+router.beforeEach((to) => {
+  const userStore = useUserStore()
+  const isLoggedIn = !!userStore.token
+
+  if (!to.meta.public && !isLoggedIn) {
+    return { path: '/login', query: { redirect: to.fullPath } }
+  }
+  if (to.path === '/login' && isLoggedIn) {
+    return { path: '/' }
+  }
 })
 
 // 路由切换时更新页面 title

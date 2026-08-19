@@ -6,10 +6,12 @@ import { fetchStream } from '@/utils/http.js'
 import http from '@/utils/http.js'
 import { useAppStore } from './app.js'
 import { useMonitorStore } from './monitor.js'
+import { useUserStore } from './user.js'
 
 export const useChatStore = defineStore('chat', () => {
   const appStore     = useAppStore()
   const monitorStore = useMonitorStore()
+  const userStore    = useUserStore()
 
   // ── 会话列表 ──────────────────────────────────────────────────
   // 每个会话：{ id, title, messages: [], createdAt }
@@ -83,11 +85,12 @@ export const useChatStore = defineStore('chat', () => {
 
   // ── 用户画像 ──────────────────────────────────────────────────
   const profile = ref({})
-  const userId  = ref('user-demo')
+  // 用户 id 来自登录态（后端以 JWT 为准，会话/画像都归属当前用户）
+  const userId = computed(() => userStore.userInfo?.id || '')
 
   async function loadProfile() {
     try {
-      const data = await http.get(`/chat/profile/${userId.value}`)
+      const data = await http.get('/chat/profile')
       profile.value = data
     } catch {}
   }

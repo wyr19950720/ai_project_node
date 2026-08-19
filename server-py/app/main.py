@@ -10,6 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.config import config, validate_config
 from app.middleware import RequestLoggerMiddleware
 from app.routes.agent import router as agent_router
+from app.routes.auth import router as auth_router
 from app.routes.chat import router as chat_router
 from app.routes.erp import router as erp_router
 from app.routes.health import router as health_router
@@ -83,6 +84,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 # ── 路由注册 ───────────────────────────────────────────────────
 app.include_router(health_router, prefix="/health")
+app.include_router(auth_router)  # 自带 /api/auth 前缀
 app.include_router(chat_router, prefix="/api/chat")
 app.include_router(knowledge_router, prefix="/api/knowledge")
 app.include_router(agent_router, prefix="/api/agent")
@@ -94,6 +96,17 @@ app.include_router(monitor_router, prefix="/api/monitor")
 
 @app.on_event("startup")
 async def on_startup():
+    # 启动时自动建表（用户/会话/消息/画像），已存在则跳过
+    try:
+        from app import models  # noqa: F401  确保模型注册到 Base
+        from app.database import Base, engine
+
+        Base.metadata.create_all(bind=engine)
+        print("   🗄️  已就绪（MySQL：users / chat_sessions / chat_messages / user_profiles）")
+    except Exception as err:
+        logger.warn("数据库初始化失败，请确认 MySQL 已启动", {"error": str(err)})
+        print(f"   ⚠️ 数据库初始化失败：{err}")
+
     # 启动时自动加载固定知识库目录（server-py/knowledge_files/）
     try:
         from app.services.rag.ingest import ingest_fixed_files

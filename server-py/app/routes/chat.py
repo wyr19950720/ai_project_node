@@ -3,14 +3,18 @@
 import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from app.middleware import rate_limiter, security_check
+from app.models import User
+from app.services.auth import get_current_user
 from app.services.cache import cache
 from app.services.chat.memory import (
-    clear_history, extract_and_update_profile, get_history, get_profile,
-    list_sessions, profile_to_context, trim_history,
+    add_message, delete_session as delete_session_db,
+    ensure_session, extract_and_update_profile, get_history, get_profile,
+    list_sessions, message_count, profile_to_context, trim_db_history,
+    trim_history,
 )
 from app.services.model import chat_model
 from app.utils.logger import logger
@@ -32,20 +36,23 @@ class ChatStreamRequest(BaseModel):
     sessionId: str | None = "default"
     systemPrompt: str | None = Field(default=None, max_length=2000)
     role: str | None = "default"
-    userId: str | None = "anonymous"
+    userId: str | None = None  # 已废弃：会话归属以 JWT 登录用户为准
 
 # Depends() 表示调用这个接口前先执行 rate_limiter 限流
-@router.post("/stream", summary="流式对话接口" , dependencies=[Depends(rate_limiter)])
-async def chat_stream(body: ChatStreamRequest):
+@router.post("/stream", summary="流式对话接口", dependencies=[Depends(rate_limiter)])
+async def chat_stream(body: ChatStreamRequest, user: User = Depends(get_current_user)):
     security_check(body.message)
 
     session_id = body.sessionId or "default"
     role = body.role or "default"
-    user_id = body.userId or "anonymous"
+    user_id = user.id
     message = body.message
 
     async def generator():
         try:
+            # 确保会话存在且属于当前用户（不存在则自动创建，标题取消息前 20 字）
+            ensure_session(session_id, user_id, title=message[:20])
+
             base_system = ROLES.get(role, ROLES["default"])
             profile = get_profile(user_id)
             profile_ctx = profile_to_context(profile)
@@ -81,10 +88,11 @@ async def chat_stream(body: ChatStreamRequest):
                     input_tokens = chunk.usage_metadata.get("input_tokens", 0)
                     output_tokens = chunk.usage_metadata.get("output_tokens", 0)
 
-            history.append(HumanMessage(content=message))
-            history.append(AIMessage(content=full_reply))
-            if len(history) > 20:
-                del history[:2]
+            add_message(session_id, "human", message)
+            add_message(session_id, "ai", full_reply)
+            # 限制单会话消息数，超出删最旧（等价于原内存版 len>20 裁剪）
+            if message_count(session_id) > 20:
+                trim_db_history(session_id, keep=20)
 
             cache.set(system_prompt, message, full_reply, input_tokens + output_tokens)
 
@@ -110,19 +118,19 @@ async def _safe_extract_profile(user_id: str, message: str, reply: str):
 
 
 @router.get("/sessions")
-async def sessions():
-    return {"sessions": list_sessions()}
+async def sessions(user: User = Depends(get_current_user)):
+    return {"sessions": list_sessions(user.id)}
 
 
 @router.delete("/sessions/{session_id}")
-async def delete_session(session_id: str):
-    clear_history(session_id)
+async def delete_session(session_id: str, user: User = Depends(get_current_user)):
+    delete_session_db(session_id, user.id)
     return {"success": True}
 
 
-@router.get("/profile/{user_id}")
-async def profile(user_id: str):
-    return get_profile(user_id)
+@router.get("/profile")
+async def profile(user: User = Depends(get_current_user)):
+    return get_profile(user.id)
 
 
 @router.get("/roles")

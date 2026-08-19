@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from app.services.model import create_chat_model
+from app.services.erp.parser import build_compliance_report
 from app.utils.logger import logger
 
 _model = create_chat_model(temperature=0.3)
@@ -25,6 +26,10 @@ APPROVAL_ROLES = {
 def _get_role_system(role_id: str, form_data: dict, form_type: str) -> str:
     form_json = json.dumps(form_data, ensure_ascii=False, indent=2)
     label = "报销" if form_type == "expense" else "请假"
+    # 报销申请：系统确定性合规报告（供财务 Agent 采信，避免模型算术误判）
+    compliance_report = ""
+    if form_type == "expense":
+        compliance_report = build_compliance_report(form_data) or "（无明细）"
 
     systems = {
         "applicant": f"""你是{form_data.get('applicantName', '小王')}，正在提交{label}申请。
@@ -43,9 +48,15 @@ def _get_role_system(role_id: str, form_data: dict, form_type: str) -> str:
 申请内容：{form_json}
 公司规定：
 - 差旅：酒店每晚不超过800元，机票必须经济舱
-- 餐饮：每次不超过500元
+- 餐饮：每天不超过200元，单次不超过500元
 - 单笔超过3000元需附发票扫描件
-你的职责：检查是否合规，发现问题要指出。不超过80字。""",
+【系统合规校验结果】（由程序按公司标准确定性计算，数值准确，请直接采信，严禁自行重新计算或推翻）：
+{compliance_report}
+审核要求：
+1. 系统判定"合规"的项目，不得以任何理由判为超标或"偏高"
+2. 系统判定"超标"或"不一致"的项目，指出并说明原因
+3. 可补充指出业务层面问题（如信息不全、事由笼统）
+4. 你的职责：检查是否合规，发现问题要指出。不超过80字。""",
 
         "hr": f"""你是 HR 专员，负责审核请假合规性。
 申请内容：{form_json}

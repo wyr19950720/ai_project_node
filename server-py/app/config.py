@@ -31,11 +31,31 @@ class _CacheConfig:
     ttl = int(os.getenv("CACHE_TTL", "1800000"))  # 30 分钟（毫秒）
 
 
+class _DbConfig:
+    host = os.getenv("DB_HOST", "localhost")
+    port = int(os.getenv("DB_PORT", "3306"))
+    user = os.getenv("DB_USER", "workmind")
+    password = os.getenv("DB_PASSWORD", "workmind123")
+    database = os.getenv("DB_DATABASE", "workmind")
+    # 容器内可通过 DATABASE_URL 直接覆盖完整连接串
+    url = os.getenv("DATABASE_URL") or (
+        f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}?charset=utf8mb4"
+    )
+
+
+class _JwtConfig:
+    secret = os.getenv("JWT_SECRET", "workmind-dev-secret-change-me")
+    algorithm = "HS256"
+    expires_days = int(os.getenv("JWT_EXPIRES_DAYS", "7"))
+
+
 class Config:
     app = _AppConfig()
     ai = _AiConfig()
     chroma = _ChromaConfig()
     cache = _CacheConfig()
+    db = _DbConfig()
+    jwt = _JwtConfig()
 
 
 config = Config()

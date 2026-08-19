@@ -16,6 +16,7 @@ from app.routes.erp import router as erp_router
 from app.routes.health import router as health_router
 from app.routes.knowledge import router as knowledge_router
 from app.routes.monitor import router as monitor_router
+from app.routes.operations import router as operations_router
 from app.routes.prompt import router as prompt_router
 from app.routes.workflow import router as workflow_router
 from app.utils.errors import AppError, app_error_handler
@@ -92,6 +93,7 @@ app.include_router(workflow_router, prefix="/api/workflow")
 app.include_router(erp_router, prefix="/api/erp")
 app.include_router(prompt_router, prefix="/api/prompt")
 app.include_router(monitor_router, prefix="/api/monitor")
+app.include_router(operations_router, prefix="/api/operations")
 
 
 @app.on_event("startup")

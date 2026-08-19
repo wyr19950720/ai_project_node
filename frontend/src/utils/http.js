@@ -7,20 +7,8 @@ import { useAppStore } from '@/stores/app.js'
 const http = axios.create({
   baseURL: '/api',           // 配合 vite proxy，开发时自动转发到 :3000
   timeout: 30000,            // 普通请求 30s 超时
+  withCredentials: true,     // 跨域/代理下携带 HttpOnly Cookie
 })
-
-// ── 请求拦截器 ─────────────────────────────────────────────────
-http.interceptors.request.use(
-  (config) => {
-    // 自动携带登录 token
-    const token = localStorage.getItem('workmind_token')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
-    return config
-  },
-  (error) => Promise.reject(error)
-)
 
 // ── 响应拦截器 ─────────────────────────────────────────────────
 http.interceptors.response.use(
@@ -35,8 +23,9 @@ http.interceptors.response.use(
       const msg = error.response.data?.error || '请求失败'
 
       if (status === 401) {
-        // 登录失效：清 token 并跳登录页
-        localStorage.removeItem('workmind_token')
+        // 登录失效：清除服务端 Cookie 并跳登录页
+        // 用原生 fetch 避免再次进入本拦截器形成递归
+        fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
         if (window.location.pathname !== '/login') {
           window.location.href = '/login'
         }
@@ -64,16 +53,11 @@ http.interceptors.response.use(
 // onError：出错时的回调
 export async function fetchStream(url, body, { onToken, onEvent, onDone, onError } = {}) {
   try {
-    // SSE 流也携带登录 token
-    const headers = { 'Content-Type': 'application/json' }
-    const token = localStorage.getItem('workmind_token')
-    if (token) {
-      headers.Authorization = `Bearer ${token}`
-    }
-
+    // SSE 流通过 HttpOnly Cookie 认证（同源 /api 代理自动携带）
     const response = await fetch(url, {
       method: 'POST',
-      headers,
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
 

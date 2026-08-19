@@ -55,6 +55,7 @@ const navItems = [
   { path: '/erp',       icon: 'Tickets',        label: '报销请假',  badge: 'ERP' },
   { path: '/prompt',    icon: 'EditPen',        label: 'Prompt 调试' },
   { path: '/monitor',   icon: 'DataAnalysis',   label: '用量看板' },
+  { path: '/operations', icon: 'Document',      label: '操作记录' },
 ]
 
 function toggleTheme() {

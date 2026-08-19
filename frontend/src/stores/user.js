@@ -1,19 +1,14 @@
 // frontend/src/stores/user.js
-// 用户登录态：token（localStorage 持久化）+ 用户信息
+// 用户登录态：token 存后端 HttpOnly Cookie（JS 不可读），store 只保存用户信息
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import http from '@/utils/http.js'
 
-const TOKEN_KEY = 'workmind_token'
-
 export const useUserStore = defineStore('user', () => {
-  const token = ref(localStorage.getItem(TOKEN_KEY) || '')
   const userInfo = ref(null)
 
   function setAuth(data) {
-    token.value = data.token
     userInfo.value = data.user
-    localStorage.setItem(TOKEN_KEY, data.token)
   }
 
   async function login(username, password) {
@@ -28,23 +23,23 @@ export const useUserStore = defineStore('user', () => {
     return data.user
   }
 
-  function logout() {
-    token.value = ''
+  async function logout() {
+    // 清除服务端 HttpOnly Cookie
+    await http.post('/auth/logout').catch(() => {})
     userInfo.value = null
-    localStorage.removeItem(TOKEN_KEY)
   }
 
-  // 刷新页面后拉取最新用户信息；token 失效返回 null
+  // 刷新页面后拉取用户信息；未登录 / Cookie 失效返回 null
   async function fetchMe() {
-    if (!token.value) return null
     try {
       const data = await http.get('/auth/me')
       userInfo.value = data.user
       return data.user
     } catch {
+      userInfo.value = null
       return null
     }
   }
 
-  return { token, userInfo, login, register, logout, fetchMe }
+  return { userInfo, login, register, logout, fetchMe }
 })

@@ -57,6 +57,12 @@ const routes = [
     component: () => import('@/views/MonitorView.vue'),
     meta: { title: '用量看板', icon: '📊' },
   },
+  {
+    path: '/operations',
+    name: 'Operations',
+    component: () => import('@/views/OperationLogView.vue'),
+    meta: { title: '操作记录', icon: '📜' },
+  },
 ]
 
 const router = createRouter({
@@ -65,9 +71,20 @@ const router = createRouter({
 })
 
 // ── 全局守卫：未登录跳登录页，已登录访问 /login 跳首页 ─────────
-router.beforeEach((to) => {
+// 页面刷新时 userInfo 为空，通过 HttpOnly Cookie 调 /auth/me 恢复一次登录态
+let authChecked = false
+
+router.beforeEach(async (to) => {
   const userStore = useUserStore()
-  const isLoggedIn = !!userStore.token
+
+  if (!authChecked) {
+    authChecked = true
+    if (!userStore.userInfo) {
+      await userStore.fetchMe()
+    }
+  }
+
+  const isLoggedIn = !!userStore.userInfo
 
   if (!to.meta.public && !isLoggedIn) {
     // 未登录访问受保护页面：明确提示先注册/登录

@@ -2,6 +2,7 @@
 // 路由配置：每个模块对应一个一级路由
 import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '@/stores/user.js'
+import { useAppStore } from '@/stores/app.js'
 
 const routes = [
   {
@@ -69,6 +70,9 @@ router.beforeEach((to) => {
   const isLoggedIn = !!userStore.token
 
   if (!to.meta.public && !isLoggedIn) {
+    // 未登录访问受保护页面：明确提示先注册/登录
+    const appStore = useAppStore()
+    appStore.toast.warning('未登录状态下无法使用，请先注册或登录')
     return { path: '/login', query: { redirect: to.fullPath } }
   }
   if (to.path === '/login' && isLoggedIn) {

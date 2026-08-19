@@ -42,3 +42,6 @@ env/
 .vscode/*
 !.vscode/extensions.json
 .idea/
+
+# 数据库备份（含用户数据，禁止提交）
+scripts/backups/

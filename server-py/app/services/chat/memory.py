@@ -143,6 +143,34 @@ def list_sessions(user_id: str) -> list[dict]:
         db.close()
 
 
+def get_session_messages(session_id: str, user_id: str) -> list[dict]:
+    """返回某会话的全部消息（正序），校验会话归属；不存在返回空列表"""
+    db = _db()
+    try:
+        sess = db.get(ChatSession, session_id)
+        if sess is None:
+            return []
+        if sess.user_id != user_id:
+            raise HTTPException(status_code=403, detail="无权访问该会话")
+        rows = (
+            db.query(ChatMessage)
+            .filter(ChatMessage.session_id == session_id)
+            .order_by(ChatMessage.id)
+            .all()
+        )
+        return [
+            {
+                "id": f"msg_{r.id}",
+                "role": "user" if r.role == "human" else "assistant",
+                "content": r.content,
+                "time": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+    finally:
+        db.close()
+
+
 # Token 感知截取：从最新消息往前，塞满为止
 def trim_history(history: list, max_tokens: int = 2000) -> list:
     result = []

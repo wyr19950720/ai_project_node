@@ -31,6 +31,8 @@ export const useErpStore = defineStore('erp', () => {
 
   // ── 申请列表 ──────────────────────────────────────────────
   const applications = ref([])
+  // 正在查看的历史申请 id（null 表示未在查看历史）
+  const viewingAppId = ref(null)
 
   // ── 解析表单 ──────────────────────────────────────────────
   async function parseForm(text) {
@@ -136,6 +138,34 @@ export const useErpStore = defineStore('erp', () => {
     } catch {}
   }
 
+  // 打开历史申请：拉取详情，恢复当时的表单、审批步骤与对话消息
+  async function openApplication(id) {
+    try {
+      const app = await http.get(`/erp/applications/${id}`)
+      viewingAppId.value    = id
+      formType.value        = app.formType
+      parsedForm.value      = app.formData || null
+      currentAppId.value    = app.id
+      finalResult.value     = app.result || null
+      approvalSteps.value   = (app.approvers || []).map(role => ({
+        roleId: role.id,
+        role,
+        status: (app.result && app.result.approvedBy?.includes(role.name)) ? 'approved' : 'rejected',
+      }))
+      approvalMessages.value = (app.messages || []).map((m, i) => ({
+        id:      `his_${i}_${id}`,
+        from:    m.from,
+        role:    m.role,
+        content: m.content,
+        type:    m.type,
+        time:    app.createdAt,
+      }))
+      approving.value = false
+    } catch {
+      appStore.toast.error('加载申请记录失败')
+    }
+  }
+
   // 重置（开始新申请）
   function reset() {
     parsedForm.value       = null
@@ -143,12 +173,22 @@ export const useErpStore = defineStore('erp', () => {
     approvalSteps.value    = []
     finalResult.value      = null
     currentAppId.value     = ''
+    viewingAppId.value     = null
+  }
+
+  // 清空全部状态（退出登录时调用，防止切换账号后残留上一账号的申请记录）
+  function clear() {
+    reset()
+    formType.value     = 'expense'
+    parsing.value      = false
+    approving.value    = false
+    applications.value = []
   }
 
   return {
     formType, parsedForm, parsing,
     approvalMessages, approvalSteps, approving, finalResult, currentAppId,
-    applications,
-    parseForm, submitApproval, loadApplications, reset,
+    applications, viewingAppId,
+    parseForm, submitApproval, loadApplications, openApplication, reset, clear,
   }
 })

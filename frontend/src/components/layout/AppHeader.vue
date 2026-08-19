@@ -45,18 +45,25 @@ import { useRoute, useRouter } from 'vue-router'
 import { useMonitorStore } from '@/stores/monitor.js'
 import { useAppStore } from '@/stores/app.js'
 import { useUserStore } from '@/stores/user.js'
+import { useChatStore } from '@/stores/chat.js'
+import { useErpStore } from '@/stores/erp.js'
 
 const route = useRoute()
 const router = useRouter()
 const monitorStore = useMonitorStore()
 const appStore = useAppStore()
 const userStore = useUserStore()
+const chatStore = useChatStore()
+const erpStore = useErpStore()
 
-// 显示昵称，未登录时兜底为 admin（路由守卫会拦截未登录访问）
-const displayName = computed(() => userStore.userInfo?.nickname || 'admin')
+// 显示昵称；路由守卫保证登录后才进入页面，异常兜底显示"未登录"
+const displayName = computed(() => userStore.userInfo?.nickname || '未登录')
 
 function onUserCommand(command) {
   if (command === 'logout') {
+    // 先清空对话/ERP 内存状态，防止切换账号后看到上一账号的数据
+    chatStore.clear()
+    erpStore.clear()
     userStore.logout()
     appStore.toast.success('已退出登录')
     router.push('/login')

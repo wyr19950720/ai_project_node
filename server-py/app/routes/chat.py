@@ -13,8 +13,8 @@ from app.services.cache import cache
 from app.services.chat.memory import (
     add_message, delete_session as delete_session_db,
     ensure_session, extract_and_update_profile, get_history, get_profile,
-    list_sessions, message_count, profile_to_context, trim_db_history,
-    trim_history,
+    get_session_messages, list_sessions, message_count, profile_to_context,
+    trim_db_history, trim_history,
 )
 from app.services.model import chat_model
 from app.utils.logger import logger
@@ -120,6 +120,14 @@ async def _safe_extract_profile(user_id: str, message: str, reply: str):
 @router.get("/sessions")
 async def sessions(user: User = Depends(get_current_user)):
     return {"sessions": list_sessions(user.id)}
+
+
+@router.get("/sessions/{session_id}/messages")
+async def session_messages(
+    session_id: str, user: User = Depends(get_current_user)
+):
+    """查看某会话的消息记录（仅本人可看）"""
+    return {"messages": get_session_messages(session_id, user.id)}
 
 
 @router.delete("/sessions/{session_id}")

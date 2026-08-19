@@ -18,10 +18,9 @@
         @click="chatStore.switchSession(session.id)"
       >
         <el-icon class="session-icon"><ChatDotRound /></el-icon>
-        <div class="session-info">
-          <div class="session-title">{{ session.title }}</div>
-          <div class="session-meta">{{ session.messages.length }} 条消息</div>
-        </div>
+        <div class="session-info"></div>
+        <div class="session-title">{{ session.title }}</div>
+        <div class="session-meta">{{ session.messageCount?.length }} 条消息</div>
         <!-- 删除按钮（hover 显示） -->
         <button
           class="btn-delete"

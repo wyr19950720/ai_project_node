@@ -16,7 +16,13 @@
         </div>
         <div v-if="showRecords" class="record-list">
           <div v-if="!erpStore.applications.length" class="record-empty">暂无申请记录</div>
-          <div v-for="app in erpStore.applications" :key="app.id" class="record-item">
+          <div
+            v-for="app in erpStore.applications"
+            :key="app.id"
+            class="record-item"
+            :class="{ active: erpStore.viewingAppId === app.id }"
+            @click="erpStore.openApplication(app.id)"
+          >
             <div class="record-top">
               <span class="record-id">{{ app.id }}</span>
               <span class="record-status" :class="app.status">{{ statusLabel(app.status) }}</span>
@@ -90,7 +96,9 @@ onMounted(() => erpStore.loadApplications())
 .record-header:hover { background:var(--color-border-light); }
 .record-list { max-height:200px; overflow-y:auto; }
 .record-empty { padding:12px 16px; font-size:12px; color:var(--color-text-muted); text-align:center; }
-.record-item { padding:10px 16px; border-bottom:1px solid var(--color-border-light); }
+.record-item { padding:10px 16px; border-bottom:1px solid var(--color-border-light); cursor:pointer; transition:background .15s; }
+.record-item:hover { background:var(--color-border-light); }
+.record-item.active { background:var(--color-primary-bg); box-shadow:inset 3px 0 0 var(--color-primary); }
 .record-top { display:flex; align-items:center; gap:6px; margin-bottom:3px; }
 .record-id   { font-size:10px; color:var(--color-text-muted); font-family:var(--font-mono); flex:1; }
 .record-status { font-size:10px; font-weight:600; padding:1px 7px; border-radius:var(--radius-full); }

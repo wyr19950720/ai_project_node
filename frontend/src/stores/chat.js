@@ -26,11 +26,44 @@ export const useChatStore = defineStore('chat', () => {
     currentSession.value?.messages || []
   )
 
-  // ── 初始化：创建第一个会话 ────────────────────────────────────
-  function init() {
+  // ── 初始化：加载历史会话，无则新建 ───────────────────────────
+  async function init() {
+    await loadSessions()
     if (sessions.value.length === 0) {
       newSession()
     }
+  }
+
+  // 从服务端加载当前用户的历史会话列表（不加载消息，按需加载）
+  async function loadSessions() {
+    try {
+      const data = await http.get('/chat/sessions')
+      sessions.value = (data.sessions || []).map(s => ({
+        id:           s.id,
+        title:        s.title,
+        messageCount: s.messageCount || 0,
+        messages:     [],
+        loaded:       false,   // 消息是否已从服务端拉取
+        remote:       true,    // 是否服务端会话（决定切换时是否加载消息）
+        createdAt:    '',
+      }))
+      if (sessions.value.length > 0) {
+        currentId.value = sessions.value[0].id
+        await loadMessages(currentId.value)
+      }
+    } catch {}
+  }
+
+  // 拉取某会话的全部消息
+  async function loadMessages(sessionId) {
+    const s = sessions.value.find(x => x.id === sessionId)
+    if (!s) return
+    try {
+      const data = await http.get(`/chat/sessions/${sessionId}/messages`)
+      s.messages     = data.messages || []
+      s.messageCount = s.messages.length
+      s.loaded       = true
+    } catch {}
   }
 
   function newSession() {
@@ -39,6 +72,9 @@ export const useChatStore = defineStore('chat', () => {
       id,
       title: '新对话',
       messages: [],
+      messageCount: 0,
+      loaded: false,
+      remote: false,     // 本地新会话，服务端还没有，切换时无需加载
       createdAt: new Date().toISOString(),
     })
     currentId.value = id
@@ -46,7 +82,13 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function switchSession(id) {
+    if (currentId.value === id) return
     currentId.value = id
+    // 服务端会话且消息未加载过 → 拉取历史消息
+    const s = sessions.value.find(x => x.id === id)
+    if (s && s.remote && !s.loaded) {
+      loadMessages(id)
+    }
   }
 
   function deleteSession(id) {
@@ -54,10 +96,15 @@ export const useChatStore = defineStore('chat', () => {
     if (idx === -1) return
     sessions.value.splice(idx, 1)
 
-    // 如果删的是当前会话，切到第一个
+    // 如果删的是当前会话，切到第一个并加载其消息
     if (currentId.value === id) {
       currentId.value = sessions.value[0]?.id || null
-      if (!currentId.value) newSession()
+      if (!currentId.value) {
+        newSession()
+      } else {
+        const first = sessions.value[0]
+        if (first.remote && !first.loaded) loadMessages(first.id)
+      }
     }
 
     // 同步删除服务端会话历史
@@ -113,6 +160,7 @@ export const useChatStore = defineStore('chat', () => {
       time:    new Date().toISOString(),
     }
     session.messages.push(userMsg)
+    session.messageCount = session.messages.length
     updateTitle(currentId.value, text)
 
     // 添加 AI 消息占位（流式填充）
@@ -193,6 +241,16 @@ export const useChatStore = defineStore('chat', () => {
     appStore.toast.success('已复制到剪贴板')
   }
 
+  // 清空全部状态（退出登录时调用，防止切换账号后残留上一账号的数据）
+  function clear() {
+    sessions.value     = []
+    currentId.value    = null
+    selectedRole.value = 'default'
+    roles.value        = []
+    profile.value      = {}
+    loading.value      = false
+  }
+
   return {
     sessions, currentId, currentSession, messages,
     selectedRole, roles,
@@ -200,6 +258,6 @@ export const useChatStore = defineStore('chat', () => {
     loading,
     init, newSession, switchSession, deleteSession,
     loadRoles, loadProfile,
-    sendMessage, regenerate, copyMessage,
+    sendMessage, regenerate, copyMessage, clear,
   }
 })

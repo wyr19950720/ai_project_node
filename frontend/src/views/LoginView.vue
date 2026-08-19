@@ -8,7 +8,7 @@
           <el-icon :size="26"><MagicStick /></el-icon>
         </div>
         <h1 class="login-title">WorkMind AI</h1>
-        <p class="login-subtitle">智能办公助手 · 登录后开始使用</p>
+        <p class="login-subtitle">智能办公助手 · 首次使用请先注册，登录后开始使用</p>
       </div>
 
       <el-form ref="formRef" :model="form" :rules="rules" label-position="top" size="large" @submit.prevent>
@@ -45,7 +45,7 @@
       </div>
     </div>
 
-    <p class="login-footer">WorkMind · 会话与画像数据已接入 MySQL 持久化</p>
+    <p class="login-footer">WorkMind · 未登录无法使用系统，请先注册账号并登录</p>
   </div>
 </template>
 

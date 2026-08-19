@@ -70,3 +70,20 @@ class UserProfile(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     user = relationship("User", back_populates="profile")
+
+
+class ErpApplication(Base):
+    """ERP 申请记录（报销/请假）：持久化审批表单、过程消息与最终结果"""
+
+    __tablename__ = "erp_applications"
+
+    id = Column(String(32), primary_key=True)  # APPxxxxxxxx
+    user_id = Column(String(36), index=True)  # 归属用户，按用户隔离记录
+    form_type = Column(String(16), nullable=False)  # expense / leave
+    form_data = Column(Text, nullable=False)  # JSON
+    status = Column(String(16), default="pending")  # pending / approved / rejected
+    approvers = Column(Text, default="")  # JSON：审批流程角色列表
+    messages = Column(Text, default="")  # JSON：审批对话消息
+    result = Column(Text, default="")  # JSON：最终结果
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

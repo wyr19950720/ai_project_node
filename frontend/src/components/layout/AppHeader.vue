@@ -59,12 +59,13 @@ const erpStore = useErpStore()
 // 显示昵称；路由守卫保证登录后才进入页面，异常兜底显示"未登录"
 const displayName = computed(() => userStore.userInfo?.nickname || '未登录')
 
-function onUserCommand(command) {
+async function onUserCommand(command) {
   if (command === 'logout') {
     // 先清空对话/ERP 内存状态，防止切换账号后看到上一账号的数据
     chatStore.clear()
     erpStore.clear()
-    userStore.logout()
+    // 等待服务端 Cookie 清除 + refresh 吊销完成后再跳转，避免与路由守卫产生竞态
+    await userStore.logout()
     appStore.toast.success('已退出登录')
     router.push('/login')
   }

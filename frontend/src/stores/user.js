@@ -24,9 +24,10 @@ export const useUserStore = defineStore('user', () => {
   }
 
   async function logout() {
-    // 清除服务端 HttpOnly Cookie
-    await http.post('/auth/logout').catch(() => {})
+    // 先同步清空前端登录态：即使请求未完成，路由守卫也能正确判断"未登录"，避免跳 /login 被弹回
     userInfo.value = null
+    // 清除服务端 HttpOnly Cookie + 吊销 refresh token
+    await http.post('/auth/logout').catch(() => {})
   }
 
   // 刷新页面后拉取用户信息；未登录 / Cookie 失效返回 null

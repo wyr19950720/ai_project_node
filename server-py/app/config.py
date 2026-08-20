@@ -46,7 +46,10 @@ class _DbConfig:
 class _JwtConfig:
     secret = os.getenv("JWT_SECRET", "workmind-dev-secret-change-me")
     algorithm = "HS256"
-    expires_days = int(os.getenv("JWT_EXPIRES_DAYS", "7"))
+    # access token：短命 JWT（8h），每次请求携带，泄露窗口小
+    access_expires_hours = int(os.getenv("JWT_ACCESS_EXPIRES_HOURS", "8"))
+    # refresh token：长命随机串（7d），仅用于换发 access，落库可吊销
+    refresh_expires_days = int(os.getenv("JWT_REFRESH_EXPIRES_DAYS", "7"))
 
 
 class Config:

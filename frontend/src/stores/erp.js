@@ -79,17 +79,38 @@ export const useErpStore = defineStore('erp', () => {
 
           // 公布审批流程（需要哪些审批人）
           if (event === 'plan') {
-            approvalSteps.value = data.approvers.map(role => ({
+            const approvers = data.approvers.map(role => ({
               roleId: role.id,
               role,
               status: 'pending',
             }))
+            // 报销申请：前置一个"合规检查"确定性工具节点，与主管 Agent 并行执行
+            if (formType.value === 'expense') {
+              approvers.unshift({
+                roleId: 'compliance_check',
+                role: {
+                  id: 'compliance_check',
+                  name: '合规检查',
+                  icon: '⚙️',
+                  color: '#6b7280',
+                  desc: '系统确定性合规校验（工具节点，不消耗 AI）',
+                },
+                status: 'pending',
+                parallel: true,
+              })
+            }
+            approvalSteps.value = approvers
           }
 
           // 某个审批人开始审核
           if (event === 'approver_start') {
             const step = approvalSteps.value.find(s => s.roleId === data.roleId)
             if (step) step.status = 'running'
+            // 主管开始审核 → 合规检查工具并行执行（确定性工具即时返回）
+            if (data.roleId === 'manager') {
+              const tool = approvalSteps.value.find(s => s.roleId === 'compliance_check')
+              if (tool) tool.status = 'running'
+            }
           }
 
           // 对话消息（最核心的部分）
@@ -108,6 +129,11 @@ export const useErpStore = defineStore('erp', () => {
           if (event === 'approver_done') {
             const step = approvalSteps.value.find(s => s.roleId === data.roleId)
             if (step) step.status = data.approved ? 'approved' : 'rejected'
+            // 主管完成 → 合规检查工具同步完成（确定性工具无等待）
+            if (data.roleId === 'manager') {
+              const tool = approvalSteps.value.find(s => s.roleId === 'compliance_check')
+              if (tool) tool.status = 'approved'
+            }
           }
 
           // 最终结果
@@ -147,11 +173,27 @@ export const useErpStore = defineStore('erp', () => {
       parsedForm.value      = app.formData || null
       currentAppId.value    = app.id
       finalResult.value     = app.result || null
-      approvalSteps.value   = (app.approvers || []).map(role => ({
+      const restoredSteps = (app.approvers || []).map(role => ({
         roleId: role.id,
         role,
         status: (app.result && app.result.approvedBy?.includes(role.name)) ? 'approved' : 'rejected',
       }))
+      // 历史恢复：报销申请补上合规检查工具节点（最终通过则视为已通过）
+      if (app.formType === 'expense') {
+        restoredSteps.unshift({
+          roleId: 'compliance_check',
+          role: {
+            id: 'compliance_check',
+            name: '合规检查',
+            icon: '⚙️',
+            color: '#6b7280',
+            desc: '系统确定性合规校验（工具节点）',
+          },
+          status: app.result ? 'approved' : 'pending',
+          parallel: true,
+        })
+      }
+      approvalSteps.value = restoredSteps
       approvalMessages.value = (app.messages || []).map((m, i) => ({
         id:      `his_${i}_${id}`,
         from:    m.from,

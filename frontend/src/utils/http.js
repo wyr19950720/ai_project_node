@@ -1,5 +1,5 @@
 // frontend/src/utils/http.js
-// 统一封装 axios：请求拦截、响应拦截、错误处理
+// 统一封装 axios：请求拦截、响应拦截、错误处理、401 自动刷新 access token
 import axios from 'axios'
 import { useAppStore } from '@/stores/app.js'
 
@@ -10,10 +10,33 @@ const http = axios.create({
   withCredentials: true,     // 跨域/代理下携带 HttpOnly Cookie
 })
 
+// ── 401 自动刷新（双 token） ───────────────────────────────────
+// access(2h) 过期时，用 refresh(7d) 换新；refresh 存后端 HttpOnly Cookie，JS 不可读
+// refreshPromise 做"单飞"：并发多个 401 只触发一次刷新，其余等待同一个 Promise
+let refreshPromise = null
+
+function tryRefresh() {
+  if (!refreshPromise) {
+    // 用原生 fetch 调刷新接口，避免再次进入 axios 拦截器形成递归
+    refreshPromise = fetch('/api/auth/refresh', {
+      method: 'POST',
+      credentials: 'include',
+    })
+      .then((r) => {
+        if (!r.ok) throw new Error('refresh-failed')
+      })
+      .finally(() => { refreshPromise = null })
+  }
+  return refreshPromise
+}
+
+// 这些接口的 401 是业务语义（如密码错误），不该触发自动刷新
+const NO_RETRY_PATHS = ['/auth/login', '/auth/register']
+
 // ── 响应拦截器 ─────────────────────────────────────────────────
 http.interceptors.response.use(
   (response) => response.data,
-  (error) => {
+  async (error) => {
     const appStore = useAppStore()
 
     if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
@@ -21,14 +44,25 @@ http.interceptors.response.use(
     } else if (error.response) {
       const status = error.response.status
       const msg = error.response.data?.error || '请求失败'
+      const url = error.config?.url || ''
 
-      if (status === 401) {
-        // 登录失效：清除服务端 Cookie 并跳登录页
-        // 用原生 fetch 避免再次进入本拦截器形成递归
-        fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
-        if (window.location.pathname !== '/login') {
-          window.location.href = '/login'
+      // access token 过期：刷新后重试原请求一次（已标记 _retried 则不再重试）
+      if (status === 401 && !error.config?._retried && !NO_RETRY_PATHS.some((p) => url.startsWith(p))) {
+        error.config._retried = true
+        try {
+          await tryRefresh()
+          return http(error.config)
+        } catch {
+          // refresh 也失效：清除登录态并跳登录页
+          fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
+          if (window.location.pathname !== '/login') {
+            window.location.href = '/login'
+          }
+          appStore.toast.error('登录已过期，请重新登录')
+          return Promise.reject(error)
         }
+      } else if (status === 401) {
+        // 登录/注册接口的 401（如密码错误）或刷新失败：直接提示
         appStore.toast.error(msg || '请先登录')
       } else if (status === 429) {
         appStore.toast.warning('请求太频繁，请稍后再试')
@@ -52,8 +86,8 @@ http.interceptors.response.use(
 // onDone：流结束时的回调
 // onError：出错时的回调
 export async function fetchStream(url, body, { onToken, onEvent, onDone, onError } = {}) {
-  try {
-    // SSE 流通过 HttpOnly Cookie 认证（同源 /api 代理自动携带）
+  // 发起请求；401 时先刷新 access 再重试一次（retried 防止死循环）
+  const run = async (retried = false) => {
     const response = await fetch(url, {
       method: 'POST',
       credentials: 'include',
@@ -62,9 +96,23 @@ export async function fetchStream(url, body, { onToken, onEvent, onDone, onError
     })
 
     if (!response.ok) {
+      if (response.status === 401 && !retried) {
+        try {
+          await tryRefresh()
+          return await run(true)
+        } catch {
+          /* refresh 失败，走下方统一错误抛出 */
+        }
+      }
       const data = await response.json().catch(() => ({}))
       throw new Error(data.error || `HTTP ${response.status}`)
     }
+    return response
+  }
+
+  try {
+    // SSE 流通过 HttpOnly Cookie 认证（同源 /api 代理自动携带）
+    const response = await run()
 
     const reader  = response.body.getReader()
     const decoder = new TextDecoder()

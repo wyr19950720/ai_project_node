@@ -14,25 +14,48 @@
       </div>
 
       <div class="steps-list">
+        <!-- 按分组渲染：parallel 步骤与紧随其后的步骤组成"并行组"（如 合规检查 ∥ 主管） -->
         <div
-          v-for="(step, idx) in erpStore.approvalSteps"
-          :key="step.roleId"
-          class="step-item"
-          :class="step.status"
+          v-for="(group, gIdx) in stepGroups"
+          :key="gIdx"
+          class="step-group"
+          :class="{ 'is-parallel': group.parallel }"
         >
-          <!-- 连接线 -->
-          <div class="step-line" v-if="idx < erpStore.approvalSteps.length - 1" :class="{ active: step.status === 'approved' }" />
+          <!-- 并行组：横向并排 + 并行执行标识 -->
+          <template v-if="group.parallel">
+            <div class="parallel-badge">
+              <span class="parallel-icon">⚡</span> 并行执行
+            </div>
+            <div class="parallel-row">
+              <div
+                v-for="step in group.steps"
+                :key="step.roleId"
+                class="step-item parallel-item"
+                :class="step.status"
+              >
+                <div class="step-avatar" :style="{ background: step.role.color + '22', color: step.role.color }">
+                  {{ step.role.icon || step.role.name?.slice(0,1) }}
+                </div>
+                <div class="step-info">
+                  <div class="step-name">{{ step.role.name }}</div>
+                  <div class="step-status" :class="step.status">
+                    {{ stepStatusText(step.status, step.roleId) }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
 
-          <!-- 角色头像 -->
-          <div class="step-avatar" :style="{ background: step.role.color + '22', color: step.role.color }">
-            {{ step.role.name?.slice(0,1) }}
-          </div>
-
-          <!-- 角色信息 -->
-          <div class="step-info">
-            <div class="step-name">{{ step.role.name }}</div>
-            <div class="step-status" :class="step.status">
-              {{ stepStatusText(step.status) }}
+          <!-- 普通步骤（串行） -->
+          <div v-else class="step-item" :class="group.steps[0].status">
+            <div class="step-avatar" :style="{ background: group.steps[0].role.color + '22', color: group.steps[0].role.color }">
+              {{ group.steps[0].role.icon || group.steps[0].role.name?.slice(0,1) }}
+            </div>
+            <div class="step-info">
+              <div class="step-name">{{ group.steps[0].role.name }}</div>
+              <div class="step-status" :class="group.steps[0].status">
+                {{ stepStatusText(group.steps[0].status, group.steps[0].roleId) }}
+              </div>
             </div>
           </div>
         </div>
@@ -108,14 +131,37 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, computed } from 'vue'
 import { useErpStore } from '@/stores/erp.js'
 
 const erpStore = useErpStore()
 const convEl   = ref(null)
 const bottomEl = ref(null)
 
-function stepStatusText(status) {
+// 把审批步骤分组：parallel 步骤与其后的串行步骤组成"并行组"（合规检查 ∥ 主管）
+// 其余步骤各自成组，组间画串行连接线
+const stepGroups = computed(() => {
+  const steps = erpStore.approvalSteps
+  const groups = []
+  let i = 0
+  while (i < steps.length) {
+    const step = steps[i]
+    if (step.parallel && i + 1 < steps.length) {
+      groups.push({ parallel: true, steps: [step, steps[i + 1]] })
+      i += 2
+    } else {
+      groups.push({ parallel: false, steps: [step] })
+      i += 1
+    }
+  }
+  return groups
+})
+
+function stepStatusText(status, roleId) {
+  // 合规检查是确定性工具节点，用执行语义而非审核语义
+  if (roleId === 'compliance_check') {
+    return { pending: '等待执行', running: '执行中', approved: '已完成', rejected: '未通过' }[status] || status
+  }
   return { pending: '待审核', running: '审核中', approved: '已通过', rejected: '已驳回' }[status] || status
 }
 
@@ -168,6 +214,23 @@ watch(
 
 .steps-list { display: flex; flex-direction: column; gap: 0; position: relative; }
 
+/* 步骤分组：组间画串行连接线 */
+.step-group { position: relative; padding: 6px 0; }
+.step-group:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 18px;
+  top: 44px;
+  bottom: -6px;
+  width: 2px;
+  background: var(--color-border);
+}
+/* 并行组之后：连线从两卡片中间向下汇入串行流 */
+.step-group.is-parallel:not(:last-child)::after {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
 .step-item {
   display: flex;
   align-items: center;
@@ -176,17 +239,60 @@ watch(
   position: relative;
 }
 
-/* 步骤连接线 */
-.step-line {
-  position: absolute;
-  left: 18px;
-  top: 42px;
-  width: 2px;
-  height: calc(100% - 10px);
-  background: var(--color-border);
-  transition: background .3s;
+/* ── 并行执行标识 ─────────────────────────────────────────── */
+.parallel-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--color-info);
+  margin: 2px 0 6px;
 }
-.step-line.active { background: var(--color-success); }
+.parallel-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--color-info);
+  color: #fff;
+  font-size: 9px;
+}
+
+.parallel-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.parallel-item {
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: 10px 6px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  transition: border-color .3s, background .3s;
+}
+.parallel-item.running {
+  border-color: var(--color-info);
+  border-style: solid;
+  background: var(--color-info-bg, rgba(37,99,235,.06));
+}
+.parallel-item.approved {
+  border-color: var(--color-success);
+  border-style: solid;
+  background: rgba(22,163,74,.06);
+}
+.parallel-item.rejected {
+  border-color: var(--color-danger);
+  border-style: solid;
+  background: rgba(220,38,38,.05);
+}
+.parallel-item .step-status { margin-top: 2px; }
 
 .step-avatar {
   width: 36px; height: 36px;

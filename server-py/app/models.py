@@ -56,6 +56,19 @@ class ChatMessage(Base):
     session = relationship("ChatSession", back_populates="messages")
 
 
+class RefreshToken(Base):
+    """refresh token：仅存哈希（防库泄露直接可用），支持吊销 / 轮换"""
+
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(36), ForeignKey("users.id"), index=True, nullable=False)
+    token_hash = Column(String(64), unique=True, nullable=False)  # SHA256 hex
+    expires_at = Column(DateTime, nullable=False)
+    revoked = Column(Integer, default=0)  # 0 有效 / 1 已吊销
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class UserProfile(Base):
     __tablename__ = "user_profiles"
 

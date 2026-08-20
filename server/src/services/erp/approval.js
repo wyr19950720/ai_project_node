@@ -1,9 +1,18 @@
 // server/src/services/erp/approval.js
-// Multi-Agent 审批流：多个 Agent 扮演不同角色，模拟企业审批过程
-// 每个 Agent 都有自己的角色定位和审批视角，会相互对话
+// 真实多智能体审批流（Multi-Agent Collaboration）
+// 相对旧的"角色扮演式"实现，本版本具备 4 个真实协作要素：
+//   1. 结构化 Agent 协议：每个 Agent 输出 ApproverVerdict/ApplicantAnswer（zod），
+//      替代"关键词猜测文本意图"（isApproved / hasQuestion）
+//   2. 确定性工具节点：合规检查是纯代码工具（checkCompliance），
+//      与主管 Agent 并行执行，结果由财务 Agent 直接采信，不占用 LLM 计算
+//   3. 结构化上下文注入：每个 Agent 只接收结构化输入（合规报告 + 上一环意见），
+//      替代"全局共享长对话历史全文拼接"
+//   4. 收敛机制：任一 Agent 驳回即短路终止；ask 交互有轮次上限；最终由确定性汇总仲裁
 import { createChatModel } from '../model.js'
-import { HumanMessage, AIMessage, SystemMessage } from '@langchain/core/messages'
+import { HumanMessage, SystemMessage } from '@langchain/core/messages'
+import { z } from 'zod'
 import { logger } from '../../utils/logger.js'
+import { checkCompliance } from './parser.js'
 
 const model = createChatModel({ temperature: 0.3 })
 
@@ -46,51 +55,85 @@ const APPROVAL_ROLES = {
   },
 }
 
-// ── 系统提示词（每个角色的人格设定）──────────────────────────
-function getRoleSystem(roleId, formData, formType) {
+// ask 交互轮次上限（收敛机制：防止无限追问）
+const MAX_ASK_ROUNDS = 2
+
+// ── 结构化 Agent 通信协议 ─────────────────────────────────────
+const ApproverVerdictSchema = z.object({
+  decision: z.enum(['approve', 'reject', 'ask'])
+    .describe('approve=批准, reject=驳回, ask=需要申请人补充说明'),
+  question: z.string().nullable().optional().describe('decision 为 ask 时必填'),
+  reason: z.string().describe('审批意见，80字以内'),
+})
+
+const ApplicantAnswerSchema = z.object({
+  answer: z.string().describe('对审批人问题的回答，60字以内'),
+})
+
+// ── 系统提示词（角色人格 + 结构化输出契约）───────────────────
+function getRoleSystem(roleId, formData, formType, complianceReport = '', managerOpinion = '') {
   const formJson = JSON.stringify(formData, null, 2)
+  const label = formType === 'expense' ? '报销' : '请假'
+
+  const verdictContract =
+    '【输出要求】只输出一个 JSON 对象，不要输出其他任何内容：\n' +
+    '{"decision": "approve 或 reject 或 ask", "question": "需要提问时填写，否则填 null", "reason": "审批意见，80字以内"}'
 
   const systems = {
-    applicant: `你是${formData.applicantName || '小王'}，正在提交${formType === 'expense' ? '报销' : '请假'}申请。
+    applicant: `你是${formData.applicantName || '小王'}，正在提交${label}申请。
 申请内容：${formJson}
-要求：简洁回答审批人的问题，提供必要的说明。语气自然，像真实对话。不超过60字。`,
+要求：简洁回答审批人的问题，提供必要的说明，像真实对话。
+【输出要求】只输出一个 JSON 对象，不要输出其他任何内容：
+{"answer": "对问题的回答，60字以内"}`,
 
-    manager: `你是直属主管，正在审核下属的${formType === 'expense' ? '报销' : '请假'}申请。
+    manager: `你是直属主管，正在审核下属的${label}申请。
 申请内容：${formJson}
 你的职责：
 1. 判断这次${formType === 'expense' ? '报销是否有业务必要性' : '请假是否影响团队工作'}
 2. 金额或时间是否合理
-3. 可以提问补充信息，然后给出批准/驳回/要求补充的意见
-4. 语气严肃专业，像真实的主管。不超过80字。`,
+3. 信息不足时 decision="ask" 并填写 question；信息充分时直接 approve/reject
+4. 语气严肃专业，像真实的主管
+${verdictContract}`,
 
     finance: `你是财务专员，负责审核报销合规性。
 申请内容：${formJson}
+【系统合规校验结果】（由程序按公司标准确定性计算，数值准确，请直接采信，严禁自行重新计算或推翻）：
+${complianceReport || '（无明细）'}
+【直属主管意见】${managerOpinion || '（无）'}
 公司规定：
 - 差旅：酒店每晚不超过800元，机票必须经济舱
-- 餐饮：每次不超过500元
+- 餐饮：每天不超过200元，单次不超过500元
 - 单笔超过3000元需附发票扫描件
-你的职责：检查是否合规，发现问题要指出。不超过80字。`,
+审核要求：
+1. 系统判定"合规"的项目，不得以任何理由判为超标或"偏高"
+2. 系统判定"超标"或"不一致"的项目，decision="reject"，reason 指出原因
+3. 金额无误且无业务问题 → decision="approve"
+${verdictContract}`,
 
     hr: `你是 HR 专员，负责审核请假合规性。
 申请内容：${formJson}
+【直属主管意见】${managerOpinion || '（无）'}
 假期规定：
 - 年假：入职满1年后享有5天，每多1年增加1天，最多15天
 - 事假：每年最多10天，超过3天影响年终绩效
 - 病假：需提供医院证明
 - 婚假：3天，需提供结婚证
-你的职责：核实假期余额和规定。不超过80字。`,
+审核要求：核实假期余额和规定，信息不足时 ask，否则直接 approve/reject。
+${verdictContract}`,
 
     director: `你是部门总监，只处理大额报销（>5000元）或长假（>5工作日）。
 申请内容：${formJson}
+【直属主管意见】${managerOpinion || '（无）'}
 你态度严格但公正，关注业务合理性和成本控制。
-最终给出明确的批准或驳回，并说明理由。不超过100字。`,
+最终直接给出 approve 或 reject，不提问，并说明理由。
+【输出要求】只输出一个 JSON 对象，不要输出其他任何内容：
+{"decision": "approve 或 reject", "question": null, "reason": "审批意见，100字以内"}`,
   }
 
   return systems[roleId] || systems.manager
 }
 
-// ── 审批流程规划 ──────────────────────────────────────────────
-// 根据申请内容决定需要哪些审批角色
+// ── 审批流程规划（确定性）────────────────────────────────────
 function planApprovalFlow(formData, formType) {
   const flow = ['manager']  // 主管是必须的
 
@@ -100,7 +143,6 @@ function planApprovalFlow(formData, formType) {
       flow.push('director')  // 大额需要总监
     }
   } else {
-    // 请假
     flow.push('hr')  // 请假必须过 HR
     if ((formData.workdays || 0) > 5) {
       flow.push('director')  // 长假需要总监
@@ -110,102 +152,123 @@ function planApprovalFlow(formData, formType) {
   return flow
 }
 
-// ── 单个审批角色的对话执行 ────────────────────────────────────
-// 每个角色会经历：审查 → 可能提问 → 申请人回答 → 给出决定
-async function runApproverTurn(roleId, formData, formType, conversationHistory, onEvent) {
+// ── 确定性工具节点 ────────────────────────────────────────────
+function buildComplianceReport(expenseForm) {
+  // 确定性合规检查（纯代码工具，不调用 LLM）：结果供财务 Agent 直接采信
+  if (!expenseForm) return ''
+  const alerts = checkCompliance(expenseForm)
+  if (!alerts.length) return '（未发现违规项，全部合规）'
+  return alerts.map(a => `- ${a}`).join('\n')
+}
+
+// ── 结构化输出解析（带文本兜底）──────────────────────────────
+async function callVerdict(systemPrompt, message) {
+  try {
+    const structuredModel = model.withStructuredOutput(ApproverVerdictSchema)
+    const v = await structuredModel.invoke([new SystemMessage(systemPrompt), message])
+    return {
+      decision: v.decision || 'approve',
+      question: v.question || null,
+      reason:   v.reason || '',
+    }
+  } catch (err) {
+    // 兜底：解析失败时按文本推断（兼容旧逻辑）
+    logger.warn('erp: structured verdict fallback', { error: err.message })
+    const text = typeof message?.content === 'string' ? message.content : ''
+    const rejectKws = ['驳回', '不批', '拒绝', '不同意', '不予批准', '无法批准']
+    const askKws = ['请问', '能否', '？', '?']
+    let decision = 'approve'
+    if (rejectKws.some(kw => text.includes(kw))) decision = 'reject'
+    else if (askKws.some(kw => text.includes(kw))) decision = 'ask'
+    return { decision, question: null, reason: text.slice(0, 80) }
+  }
+}
+
+// ── 单个审批 Agent 的执行 ─────────────────────────────────────
+async function askApplicant(roleId, question, formData, formType) {
+  const applicantSystem = getRoleSystem('applicant', formData, formType)
+  try {
+    const structuredModel = model.withStructuredOutput(ApplicantAnswerSchema)
+    const v = await structuredModel.invoke([
+      new SystemMessage(applicantSystem),
+      new HumanMessage(`${APPROVAL_ROLES[roleId].name}提问：${question}`),
+    ])
+    return v.answer || '已补充说明。'
+  } catch (err) {
+    logger.warn('erp: applicant answer fallback', { error: err.message })
+    return '已补充说明。'
+  }
+}
+
+async function askApprover(roleId, formData, formType, complianceReport, managerOpinion, onEvent) {
   const role = APPROVAL_ROLES[roleId]
-  const systemPrompt = getRoleSystem(roleId, formData, formType)
+  const systemPrompt = getRoleSystem(roleId, formData, formType, complianceReport, managerOpinion)
 
   logger.info('erp: approver turn', { roleId })
 
-  // 1. 审批人查看申请，给出初步意见（可能有问题）
-  const questionResponse = await model.invoke([
-    new SystemMessage(systemPrompt),
-    new HumanMessage(`请审核这份申请。如果有疑问，可以提问；如果信息充分，直接给出审批意见（批准/驳回）。`),
-    ...conversationHistory,
-  ])
+  onEvent('approver_start', { roleId, role })
 
-  const questionText = questionResponse.content
+  let verdict = await callVerdict(
+    systemPrompt,
+    new HumanMessage(`请审核这份申请，按 JSON 输出审批意见。\n申请内容：${JSON.stringify(formData)}`)
+  )
 
-  onEvent('message', {
-    from:    roleId,
-    role:    role,
-    content: questionText,
-    type:    'question',
-  })
+  // 收敛：ask 交互最多 MAX_ASK_ROUNDS 轮（总监不提问）
+  let rounds = 0
+  while (verdict.decision === 'ask' && roleId !== 'director' && rounds < MAX_ASK_ROUNDS) {
+    const question = verdict.question || '请补充说明申请的具体情况'
+    onEvent('message', { from: roleId, role, content: question, type: 'question' })
 
-  conversationHistory.push(new AIMessage(`[${role.name}]：${questionText}`))
+    const answer = await askApplicant(roleId, question, formData, formType)
+    onEvent('message', { from: 'applicant', role: APPROVAL_ROLES.applicant, content: answer, type: 'answer' })
 
-  // 2. 如果审批人有提问，申请人要回答
-  const hasQuestion = questionText.includes('？') || questionText.includes('?') || questionText.includes('请问') || questionText.includes('能否')
-
-  if (hasQuestion && roleId !== 'director') {
-    const applicantSystem = getRoleSystem('applicant', formData, formType)
-    const answerResponse  = await model.invoke([
-      new SystemMessage(applicantSystem),
-      ...conversationHistory,
-      new HumanMessage(`${role.name}刚才提了问题，请以申请人身份回答`),
-    ])
-
-    const answerText = answerResponse.content
-
-    onEvent('message', {
-      from:    'applicant',
-      role:    APPROVAL_ROLES.applicant,
-      content: answerText,
-      type:    'answer',
-    })
-
-    conversationHistory.push(new AIMessage(`[申请人]：${answerText}`))
-
-    // 3. 审批人看到回答后，给出最终决定
-    const decisionResponse = await model.invoke([
-      new SystemMessage(systemPrompt),
-      ...conversationHistory,
-      new HumanMessage(`申请人已经回答了你的问题，现在请给出最终的审批意见：批准或驳回，并说明理由。`),
-    ])
-
-    const decisionText = decisionResponse.content
-
-    onEvent('message', {
-      from:    roleId,
-      role:    role,
-      content: decisionText,
-      type:    'decision',
-    })
-
-    conversationHistory.push(new AIMessage(`[${role.name}]：${decisionText}`))
-
-    return { approved: isApproved(decisionText), comment: decisionText }
+    rounds += 1
+    verdict = await callVerdict(
+      systemPrompt,
+      new HumanMessage(`申请人已回答：${answer}\n请基于回答给出最终审批意见（approve 或 reject），按 JSON 输出。`)
+    )
   }
 
-  // 没有追问，直接从第一个回复里判断结果
-  return { approved: isApproved(questionText), comment: questionText }
+  onEvent('message', { from: roleId, role, content: verdict.reason, type: 'decision' })
+
+  const approved = verdict.decision === 'approve'
+  onEvent('approver_done', { roleId, role, approved, comment: verdict.reason })
+  return { approved, verdict }
 }
 
-// 判断审批是否通过（简单的关键词匹配）
-function isApproved(text) {
-  const rejectKeywords = ['驳回', '不批', '拒绝', '不同意', '不予批准', '无法批准']
-  return !rejectKeywords.some(kw => text.includes(kw))
+// ── 确定性汇总仲裁 ────────────────────────────────────────────
+function buildResult(approved, comment, approverIds) {
+  return {
+    approved:    approved,
+    status:      approved ? 'approved' : 'rejected',
+    comment:     comment,
+    approvedBy:  approved ? approverIds.map(id => APPROVAL_ROLES[id].name) : [],
+    completedAt: new Date().toISOString(),
+  }
 }
 
-// ── 主函数：运行完整审批流 ────────────────────────────────────
+// ── 主流程：多智能体协作调度 ──────────────────────────────────
 /**
  * @param {object} formData   - 解析好的结构化表单数据
  * @param {string} formType   - 'expense' | 'leave'
  * @param {function} onEvent  - 事件回调
  *
- * onEvent 类型：
- *   'plan'     → 公布审批流程（需要哪些角色）
- *   'approver_start' → 某个审批人开始审核
- *   'message'  → 某个角色发出一条消息（对话气泡）
- *   'approver_done'  → 某个审批人给出决定
- *   'final'    → 最终审批结果
+ * 真实多智能体协作：
+ *   阶段1（并行）：确定性合规工具 ∥ 主管 Agent
+ *   阶段2/3（条件串行）：财务/HR Agent（结构化输入：合规报告 + 主管意见）→ 总监 Agent
+ *   阶段4（确定性）：汇总仲裁，任一驳回即收敛终止
+ *
+ * onEvent 类型（与前端 SSE 协议一致）：
+ *   'plan'           → 公布审批流程（需要哪些角色）
+ *   'approver_start' → 某个审批 Agent 开始审核
+ *   'message'        → 某个 Agent 发出一条消息（question/answer/decision）
+ *   'approver_done'  → 某个审批 Agent 给出决定
+ *   'final'          → 最终审批结果
  */
 export async function runApprovalFlow(formData, formType, onEvent) {
   logger.info('erp: approval flow started', { formType })
 
-  // 1. 规划审批流程
+  // 1. 规划审批流程（确定性）
   const approverIds = planApprovalFlow(formData, formType)
 
   onEvent('plan', {
@@ -213,49 +276,45 @@ export async function runApprovalFlow(formData, formType, onEvent) {
     totalSteps: approverIds.length,
   })
 
-  // 全局对话历史（所有审批人共享，能看到之前的对话）
-  const conversationHistory = [
-    new HumanMessage(
-      `申请人提交了${formType === 'expense' ? '报销' : '请假'}申请：\n${JSON.stringify(formData, null, 2)}`
-    ),
-  ]
+  // 2. 阶段1：并行执行
+  //    确定性合规工具（纯代码，零 LLM）与主管 Agent 同时启动
+  const [complianceReport, [managerApproved, managerVerdict]] = await Promise.all([
+    Promise.resolve(buildComplianceReport(formType === 'expense' ? formData : null)),
+    askApprover('manager', formData, formType, '', '', onEvent),
+  ])
 
-  // 2. 逐个审批角色走流程
-  let allApproved = true
-  let finalComment = ''
+  if (!managerApproved) {
+    // 收敛：主管驳回 → 终止
+    const result = buildResult(false, `被${APPROVAL_ROLES.manager.name}驳回：${managerVerdict.reason}`, [])
+    onEvent('final', result)
+    logger.info('erp: approval flow done', { formType, approved: false })
+    return result
+  }
 
-  for (const roleId of approverIds) {
-    const role = APPROVAL_ROLES[roleId]
+  // 3. 阶段2/3：后续审批 Agent（结构化上下文注入，依赖前一环）
+  //    manager 已在并行阶段处理，此处只走后续角色
+  let lastOpinion = managerVerdict.reason
+  for (let i = 1; i < approverIds.length; i++) {
+    const roleId = approverIds[i]
 
-    onEvent('approver_start', { roleId, role })
-
-    const { approved, comment } = await runApproverTurn(
-      roleId, formData, formType, conversationHistory, onEvent
-    )
-
-    onEvent('approver_done', { roleId, role, approved, comment })
+    const { approved, verdict } = await askApprover(roleId, formData, formType, complianceReport, lastOpinion, onEvent)
 
     if (!approved) {
-      allApproved  = false
-      finalComment = `被${role.name}驳回：${comment}`
-      break  // 任一审批人驳回，流程终止
+      // 收敛：任一 Agent 驳回 → 短路终止
+      const result = buildResult(false, `被${APPROVAL_ROLES[roleId].name}驳回：${verdict.reason}`, [])
+      onEvent('final', result)
+      logger.info('erp: approval flow done', { formType, approved: false })
+      return result
     }
 
-    finalComment = comment
-    await new Promise(r => setTimeout(r, 300))  // 稍微停顿，让前端看清楚
+    lastOpinion = verdict.reason
+    await new Promise(r => setTimeout(r, 300))  // 停顿，让前端看清步骤
   }
 
-  // 3. 输出最终结果
-  const result = {
-    approved:    allApproved,
-    status:      allApproved ? 'approved' : 'rejected',
-    comment:     finalComment,
-    approvedBy:  allApproved ? approverIds.map(id => APPROVAL_ROLES[id].name) : [],
-    completedAt: new Date().toISOString(),
-  }
-
+  // 4. 阶段4：确定性汇总仲裁（全部通过）
+  const result = buildResult(true, lastOpinion, approverIds)
   onEvent('final', result)
-  logger.info('erp: approval flow done', { formType, approved: allApproved })
+  logger.info('erp: approval flow done', { formType, approved: true })
 
   return result
 }
